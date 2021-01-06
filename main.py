@@ -6,6 +6,8 @@ from operator import mul
 import json
 import time
 import os.path
+import shutil
+from datetime import datetime
 
 def webdriver_test():
 	from selenium import webdriver
@@ -51,14 +53,65 @@ def reshape(lst, shape):
 	n = reduce(mul, shape[1:])
 	return [reshape(lst[i*n:(i+1)*n], shape[1:]) for i in range(len(lst)//n)]
 
+def get_scaped_toto_ids():
+	data = None
+	try:
+		with open(os.getenv("TOTO_RESULTS_FILE"), mode='r') as f:
+			data = json.load(f)
+			f.close()
+		return list(map(lambda x: x['id'], data))
+	except (json.decoder.JSONDecodeError, FileNotFoundError) as e:
+		print("Didn't find any already scraped IDs")
+		return []
 
-def toto_scrape(output_file):
-	ids =  list(range(0, 55445))
+def backup_scraped_toto():
+	if not os.path.exists(os.getenv("TOTO_RESULTS_FILE")):
+		return False
 	
+	if not os.path.exists('backups'):
+		os.makedirs('backups')
+	
+	now = datetime.now().strftime("%m-%d-%Y_%H:%M:%S")
+	output_path = 'backups/toto_' + str(now) +'.json'
+	shutil.copyfile(os.getenv("TOTO_RESULTS_FILE"), output_path)
+	return True
+
+def write_entry_to_file(entry, output_file):
+	# TODO: checking if file exists and is valid doesn't have to be done everytime..
+	if not os.path.isfile(output_file):
+		with open(output_file, mode='w') as f:
+			f.write(json.dumps([entry], indent=2))
+			return
+	
+	with open(output_file, mode='r+') as f:
+		content = f.read()
+		if (os.stat(output_file).st_size == 0):
+			f.write(json.dumps([entry], indent=2))
+			return
+
+		# nasty insertion so can append and don't have to read entire file to ram evertime
+		size = os.path.getsize(output_file)
+		f.seek(size-2)
+		json_stuff = "  " + json.dumps(entry, indent=2).replace("\n", "\n  ")
+		f.write(",\n" + json_stuff + "\n]")
+
+def toto_scrape(output_file, ids = list(range(0, 75445))):
+	#ids =  list(range(0, 55445))
+	already_scraped = get_scaped_toto_ids()
+	ids = list(filter(lambda x: x not in already_scraped, ids))
+	
+	#batch IDs
 	id_chunk_size = 100
 	
 	shape = [2, id_chunk_size]
 	id_chunks = reshape(ids, shape)
+	
+	left_over_n = len(ids) % id_chunk_size
+	if left_over_n > 0:
+		left_overs = ids[len(id_chunks) * id_chunk_size : ]
+		id_chunks.append(left_overs)
+
+	#use IDs batches to grab data
 	for chunk in id_chunks:
 		id_chunks_str =','.join(map(str,chunk))
 		url = "https://content.toto.nl/content-service/api/v1/q/resulted-events?eventIds="+ id_chunks_str +"&includeChildMarkets=true&includeRace=true&includeRunners=true"
@@ -78,24 +131,14 @@ def toto_scrape(output_file):
 			start_time = result['startTime']
 			print(str(id), cat, start_time, name)
 
-			a = []
 			entry = {'id': id, 'result': result}
-			if not os.path.isfile(output_file):
-				a.append(entry)
-				with open(output_file, mode='w') as f:
-					f.write(json.dumps(a, indent=2))
-					f.close()
-			else:
-				with open(output_file) as feedsjson:
-					feeds = json.load(feedsjson)
-
-				feeds.append(entry)
-				with open(output_file, mode='w') as f:
-					f.write(json.dumps(feeds, indent=2))
-					f.close()
+			write_entry_to_file(entry, output_file)
 
 
 if __name__ == "__main__":
 	load_dotenv()
-	
+
+	#write_entry_to_file({'id': 0, 'result': {}}, os.getenv("TOTO_RESULTS_FILE"))
+
+	backup_scraped_toto()
 	toto_scrape(os.getenv("TOTO_RESULTS_FILE"))

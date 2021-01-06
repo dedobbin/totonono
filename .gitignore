@@ -1,2 +1,5 @@
 .env
 results.json
+scraped
+backups
+.vscode
