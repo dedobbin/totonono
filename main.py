@@ -9,6 +9,7 @@ import os.path
 import shutil
 from datetime import datetime
 import logging
+import sys
 
 def webdriver_test():
 	from selenium import webdriver
@@ -49,7 +50,7 @@ def webdriver_test():
 		label_text = label.get_attribute('innerHTML')
 		print("input label: " + label_text)
 
-
+#low level helper to chuck 1 long id array into smaller ones
 def reshape(lst, shape):
 	if len(shape) == 1:
 		return lst
@@ -66,6 +67,37 @@ def get_scaped_toto_ids():
 	except (json.decoder.JSONDecodeError, FileNotFoundError) as e:
 		logging.warning("Didn't find any already scraped IDs")
 		return []
+
+def filter_scraped_soccer():
+	skip_ids = []
+	if os.path.isfile(os.getenv("TOTO_RESULTS_FILE_SOCCER")):
+		with open(os.getenv("TOTO_RESULTS_FILE_SOCCER")) as f:
+			try:
+				data = json.load(f)
+				skip_ids = list(map(lambda x: x['id'], data))
+			except json.decoder.JSONDecodeError as e:
+				print(os.getenv("TOTO_RESULTS_FILE_SOCCER") + " malformed, aborting")
+				exit() 
+	data = None
+	
+	try:
+		with open(os.getenv("TOTO_RESULTS_FILE")) as f:
+			print("Loading data..")
+			data = json.load(f)
+	except json.decoder.JSONDecodeError as e:
+		print(os.getenv("TOTO_RESULTS_FILE") + " malformed, aborting")
+		exit() 
+
+	
+	print("Done loading data from file")
+
+	print("Will write to " + os.getenv("TOTO_RESULTS_FILE_SOCCER"))
+	i = 0
+	for entry in data:
+		print(str(i) + "/" + str(len(data)))
+		if entry['result']['category']['code'] == 'FOOTBALL' and not entry['id'] in skip_ids:
+			write_entry_to_file(entry, os.getenv("TOTO_RESULTS_FILE_SOCCER"))
+		i+=1
 
 def backup_scraped_toto():
 	if not os.path.exists(os.getenv("TOTO_RESULTS_FILE")):
@@ -142,8 +174,16 @@ def toto_scrape(output_file, ids = list(range(0, 75445))):
 			write_entry_to_file(entry, output_file)
 
 if __name__ == "__main__":
+	if len(sys.argv) == 1 or (sys.argv[1] != 'scrape' and sys.argv[1] != 'soccer_parse'):
+		print ("Use argument 'scrape' or 'soccer_parse'")
+		exit()
+	
 	load_dotenv()
 	logging.basicConfig(filename='logs/toto_' + datetime.now().strftime("%m-%d-%Y") +'.log', level=logging.DEBUG)
 	
 	backup_scraped_toto()
-	toto_scrape(os.getenv("TOTO_RESULTS_FILE"))
+
+	if (sys.argv[1] == 'scrape'):
+		toto_scrape(os.getenv("TOTO_RESULTS_FILE"))
+	if (sys.argv[1] == 'soccer_parse'):
+		filter_scraped_soccer()
