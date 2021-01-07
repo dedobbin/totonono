@@ -8,6 +8,7 @@ import time
 import os.path
 import shutil
 from datetime import datetime
+import logging
 
 def webdriver_test():
 	from selenium import webdriver
@@ -26,7 +27,8 @@ def webdriver_test():
 	try:
 		web_driver = webdriver.Chrome(executable_path=os.getenv('CHROME_DRIVER'), options=options)
 	except Exception as e:
-		print("couldn't start web driver", e)
+		logging.error("couldn't start web driver:" + str(e))
+		exit();
 	
 	url = "https://sport.toto.nl/sport/resultaten"
 	web_driver.get(url)
@@ -35,7 +37,8 @@ def webdriver_test():
 		w = WebDriverWait(web_driver, 8)
 		w.until(EC.presence_of_element_located((By.CLASS_NAME,"sports-results")))
 	except TimeoutException as e:
-		print("Timeout happened no page load")
+		logging.error("Timeout happened no page load")
+		exit()
 
 	results_filter = web_driver.find_element_by_class_name("result-filters")
 
@@ -61,7 +64,7 @@ def get_scaped_toto_ids():
 			f.close()
 		return list(map(lambda x: x['id'], data))
 	except (json.decoder.JSONDecodeError, FileNotFoundError) as e:
-		print("Didn't find any already scraped IDs")
+		logging.warning("Didn't find any already scraped IDs")
 		return []
 
 def backup_scraped_toto():
@@ -101,7 +104,7 @@ def toto_scrape(output_file, ids = list(range(0, 75445))):
 	ids = list(filter(lambda x: x not in already_scraped, ids))
 	
 	#batch IDs
-	id_chunk_size = 100
+	id_chunk_size = 50
 	
 	shape = [2, id_chunk_size]
 	id_chunks = reshape(ids, shape)
@@ -116,13 +119,17 @@ def toto_scrape(output_file, ids = list(range(0, 75445))):
 		id_chunks_str =','.join(map(str,chunk))
 		url = "https://content.toto.nl/content-service/api/v1/q/resulted-events?eventIds="+ id_chunks_str +"&includeChildMarkets=true&includeRace=true&includeRunners=true"
 		
+		print("Requesting\n" + url)
 		response = requests.get(url)
 
 		if not response.status_code == 200:
-			print("request failed: " + str(response.status_code) + "\n" + str(response.content))
+			logging.error("request failed: " + str(response.status_code) + "\n" + str(response.content))
 			exit()
 	
 		results = response.json()['data']['eventResults']
+
+		if len(results) == 0:
+			print("Response empty")
 
 		for result in results:
 			name = result["name"]
@@ -134,11 +141,9 @@ def toto_scrape(output_file, ids = list(range(0, 75445))):
 			entry = {'id': id, 'result': result}
 			write_entry_to_file(entry, output_file)
 
-
 if __name__ == "__main__":
 	load_dotenv()
-
-	#write_entry_to_file({'id': 0, 'result': {}}, os.getenv("TOTO_RESULTS_FILE"))
-
+	logging.basicConfig(filename='logs/toto_' + datetime.now().strftime("%m-%d-%Y") +'.log', level=logging.DEBUG)
+	
 	backup_scraped_toto()
 	toto_scrape(os.getenv("TOTO_RESULTS_FILE"))
