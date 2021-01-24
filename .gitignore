@@ -4,3 +4,4 @@ scraped
 backups
 .vscode
 *.log
+__pycache__
